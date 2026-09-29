@@ -1,0 +1,18 @@
+# Inference / pipeline (pin the exact versions actually installed on the cluster:
+#   pip freeze > experiments/pip_freeze.txt  -- see README, "Reproducibility")
+torch>=2.3
+transformers>=4.56   # tested with 5.17 (CPU smoke test)
+accelerate
+scikit-learn
+numpy
+requests
+nvidia-ml-py   # NOT the deprecated "pynvml" package: pip uninstall pynvml
+# Experiment Runner dependencies (github.com/S2-group/experiment-runner/requirements.txt)
+pandas
+psutil
+tabulate
+dill
+jsonpickle
+# data download
+gdown
+huggingface_hub

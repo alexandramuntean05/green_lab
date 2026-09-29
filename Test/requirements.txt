@@ -1,0 +1,6 @@
+transformers>=4.44
+accelerate>=0.33
+bitsandbytes>=0.43
+sentence-transformers>=3.0
+scikit-learn>=1.4
+torch>=2.1
