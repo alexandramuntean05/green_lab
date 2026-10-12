@@ -1,22 +1,9 @@
-"""Experiment Runner configuration for "Energy Efficiency of Speculative RAG".
+"""Experiment Runner config for the Speculative RAG energy experiment.
 
-Usage (from the experiment-runner checkout, see README.md):
+Run from the experiment-runner folder:
     ER_BENCHMARK=pubhealth python experiment-runner/ ../specrag-energy/RunnerConfig.py
     ER_BENCHMARK=triviaqa  python experiment-runner/ ../specrag-energy/RunnerConfig.py
-    ER_PILOT=1 ER_BENCHMARK=pubhealth python experiment-runner/ ../specrag-energy/RunnerConfig.py
-
-One invocation = one benchmark (one block of the design, analysed separately,
-Section 4.5): 10 treatments x Q questions x `repetitions` runs in randomised order.
-
-Per run (hooks called by Experiment Runner in this order, all inside one child
-process per run):
-  before_run        (parent) thermal gate: wait until the GPU is back near idle temperature
-  start_run         record GPU temperature at run start
-  start_measurement read energy counters, then t0; start 100 ms power sampler
-  interact          one blocking HTTP request -> rag_server processes ONE query
-  stop_measurement  t1, then read energy counters
-  populate_run_data derived metrics -> run_table.csv; raw response + power trace -> run dir
-Between runs Experiment Runner sleeps `time_between_runs_in_ms` (cool-down).
+Add ER_PILOT=1 for the pilot (3 questions, 2 repetitions).
 """
 import json
 import os
@@ -45,10 +32,10 @@ from energy import EnergyMeter, GpuCounter  # noqa: E402
 CFG = json.load(open(os.environ.get("ER_CONFIG", ROOT / "config.json")))
 BENCHMARK = os.environ.get("ER_BENCHMARK", "pubhealth")
 PILOT = os.environ.get("ER_PILOT", "0") == "1"
-TREATMENT_IDS = [f"T{i}" for i in range(10)]   # T0 = Standard RAG, T1..T9 = Speculative (Table 5)
+TREATMENT_IDS = [f"T{i}" for i in range(10)]   # T0 standard RAG, T1-T9 speculative RAG
 
 DATA_COLUMNS = [
-    "status", "E_q_J", "E_gpu_J", "E_cpu_J", "T_q_s", "P_avg_W", "E_tok_J",
+    "status", "E_q_J", "E_gpu_J", "E_cpu_J", "E_cpu_est_J", "U_cpu", "T_q_s", "P_avg_W", "E_tok_J",
     "N_in", "N_int", "N_final", "N_gen", "N_emb",
     "correct", "correct_norm", "parse_ok_frac", "n_unique_subsets",
     "t_retrieve_ms", "t_cluster_ms", "t_draft_ms", "t_verify_ms", "t_generate_ms", "server_wall_ms",
@@ -66,7 +53,7 @@ class RunnerConfig:
     ROOT_DIR = ROOT
 
     # ================================ USER SPECIFIC CONFIG ================================
-    name: str = f"specrag_{BENCHMARK}" + ("_pilot" if PILOT else "")
+    name: str = f"specrag_{BENCHMARK}" + ("_pilot" if PILOT else "") + os.environ.get("ER_NAME_SUFFIX", "")
     results_output_path: Path = ROOT / "experiments"
     operation_type: OperationType = OperationType.AUTO
     time_between_runs_in_ms: int = int(os.environ.get("ER_COOLDOWN_MS", CFG["experiment"]["cooldown_ms"]))
@@ -95,7 +82,7 @@ class RunnerConfig:
         reps = int(os.environ.get("ER_REPS", self.exp["repetitions"]))
         if PILOT:
             qids, reps = qids[:3], 2
-        random.seed(f"{CFG['sampling']['seed']}-{BENCHMARK}-order")   # reproducible run order
+        random.seed(f"{CFG['sampling']['seed']}-{BENCHMARK}-order")   # fixed run order
         self.run_table_model = RunTableModel(
             factors=[FactorModel("treatment", TREATMENT_IDS), FactorModel("qid", qids)],
             repetitions=reps,
@@ -104,16 +91,14 @@ class RunnerConfig:
         )
         return self.run_table_model
 
-    # ------------------------------------------------------------ experiment
     def before_experiment(self) -> None:
-        # Idle reference for the thermal gate is taken BEFORE the server starts and
-        # before any warm-up, i.e. while the GPU is genuinely idle. (Reading it right
-        # after the warm-up would give a warm reference and make the gate too lenient.)
+        # idle temperature, read before the models are loaded
         gpu = GpuCounter(CFG["gpu_index"])
         if gpu.available:
             self.idle_temp_c = gpu.temperature_c()
             output.console_log(f"GPU '{gpu.name}' idle reference temperature: {self.idle_temp_c} C")
         env = dict(os.environ, CUDA_DEVICE_ORDER="PCI_BUS_ID",
+                   PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True",
                    CUDA_VISIBLE_DEVICES=str(CFG["gpu_index"]))
         device = os.environ.get("ER_DEVICE", "cuda:0")
         (ROOT / "experiments").mkdir(exist_ok=True)
@@ -141,11 +126,10 @@ class RunnerConfig:
         output.console_log(f"Running {n_warm} unmeasured warm-up queries ...")
         requests.post(self.url + "/warmup", json={"n": n_warm, "seed": CFG["sampling"]["seed"]},
                       timeout=self.exp["request_timeout_s"] * max(1, n_warm))
-        time.sleep(self.time_between_runs_in_ms / 1000)   # cool-down before the first measured run
+        time.sleep(self.time_between_runs_in_ms / 1000)
 
     def before_run(self) -> None:
-        """Thermal gate: start a run only when the GPU has cooled to within
-        `thermal_gate_margin_c` of the idle reference (or below a fixed limit)."""
+        # wait until the GPU is below the temperature limit
         if not self.exp["thermal_gate_enabled"]:
             return
         gpu = GpuCounter(CFG["gpu_index"])
@@ -160,15 +144,16 @@ class RunnerConfig:
         while gpu.temperature_c() > limit and time.time() < deadline:
             time.sleep(1)
 
-    # -------------------------------------------------------------------- run
     def start_run(self, context: RunnerContext) -> None:
         gpu = GpuCounter(CFG["gpu_index"])
         self.gpu_temp_start = gpu.temperature_c()
         self.response, self.error = None, None
 
     def start_measurement(self, context: RunnerContext) -> None:
-        self.meter = EnergyMeter(CFG["gpu_index"], self.exp["power_sample_period_s"])
-        self.meter.start()
+        self.meter = EnergyMeter(CFG["gpu_index"], self.exp["power_sample_period_s"],
+                                 cpu_model=CFG.get("cpu_energy_model"),
+                                 cpu_energy=CFG.get("cpu_energy"))
+        self.meter.start(eb_csv=str(context.run_dir / "energibridge.csv"))
 
     def interact(self, context: RunnerContext) -> None:
         run = context.execute_run
@@ -198,9 +183,10 @@ class RunnerConfig:
         row = {c: "" for c in DATA_COLUMNS}
         row.update({"gpu_temp_start_c": self.gpu_temp_start, "energy_sources": m["energy_sources"],
                     "E_q_J": m["E_q_J"], "E_gpu_J": m["E_gpu_J"], "E_cpu_J": m["E_cpu_J"],
-                    "T_q_s": m["T_q_s"], "P_avg_W": m["P_avg_W"]})
+                    "T_q_s": m["T_q_s"], "P_avg_W": m["P_avg_W"],
+                    "E_cpu_est_J": m["E_cpu_est_J"], "U_cpu": m["U_cpu"]})
         if self.response is None:
-            row["status"] = "error"          # re-queued with requeue_failed.py (Section 4.5)
+            row["status"] = "error"
             return row
         r = self.response
         row["status"] = "ok"

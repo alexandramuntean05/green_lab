@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+data/raw/
+tests/fixtures/
+experiments/*/run_*/
+experiments/*.log

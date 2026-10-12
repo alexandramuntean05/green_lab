@@ -1,5 +1,4 @@
 {
-  "_comment": "All values marked TBD must be confirmed by the team before the pilot. See README.md.",
   "gpu_index": 0,
   "server_host": "127.0.0.1",
   "server_port": 8765,
@@ -12,11 +11,13 @@
   },
   "generation": {
     "max_new_tokens": 128,
-    "greedy": true
+    "greedy": true,
+    "prefill": "## Rationale:",
+    "one_shot": true
   },
   "retrieval": {
     "R": 10,
-    "source": "Self-RAG eval_data, Contriever-MS MARCO over DPR Wikipedia (psgs_w100)"
+    "ctx_mode": "scored_only"
   },
   "speculative": {
     "m_levels": [
@@ -39,19 +40,29 @@
     "seed": 2026
   },
   "data": {
-    "pubhealth_raw": "data/raw/health_claims_processed.jsonl",
-    "triviaqa_raw": "data/raw/triviaqa_test_w_gs.jsonl",
+    "pubhealth_raw": "data/raw/eval_datasets/PubHealth/health_claims_processed.jsonl",
+    "triviaqa_raw": "data/raw/eval_datasets/TriviaQA/triviaqa_test_w_gs.jsonl",
     "prepared_dir": "data/prepared"
   },
   "experiment": {
     "repetitions": 10,
-    "cooldown_ms": 20000,
+    "cooldown_ms": 30000,
     "warmup_queries": 10,
     "thermal_gate_enabled": true,
-    "thermal_gate_max_temp_c": null,
+    "thermal_gate_max_temp_c": 55,
     "thermal_gate_margin_c": 3,
     "thermal_gate_timeout_s": 120,
     "power_sample_period_s": 0.1,
     "request_timeout_s": 600
+  },
+  "cpu_energy_model": {
+    "tdp_w": 125,
+    "idle_w": 0
+  },
+  "cpu_energy": {
+    "method": "energibridge",
+    "binary": "energibridge",
+    "interval_ms": 50,
+    "startup_s": 1.0
   }
 }

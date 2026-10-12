@@ -1,6 +1,4 @@
-"""Mark failed or incomplete runs of an Experiment Runner run table as TODO so that
-re-invoking Experiment Runner on the same config re-executes only those runs
-(Experiment Runner "Restarting" feature; Section 4.5: failed runs are repeated).
+"""Set failed runs back to TODO so Experiment Runner runs them again.
 
     python src/requeue_failed.py experiments/specrag_pubhealth/run_table.csv
 """

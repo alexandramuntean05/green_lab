@@ -1,17 +1,9 @@
-"""Long-lived inference server (system under test).
+"""Inference server that keeps the models loaded.
 
-Experiment Runner executes every run in a fresh child process
-(ExperimentController.do_experiment -> multiprocessing.Process), so models that
-live in the runner process would be re-loaded for every run and CUDA contexts
-cannot be shared across fork(). The models therefore live in this separate
-process, are loaded once, stay resident in GPU memory, and are called over
-HTTP on localhost. The server is single-threaded: exactly one query is processed
-at a time (serving batch size of one query, Section 4.2).
+Experiment Runner starts a new process for every run, so the models are loaded
+once here and called over HTTP on localhost. One query at a time.
 
-Endpoints
-  GET  /health                           -> {"status": "ok", ...}
-  POST /query  {"benchmark","qid","treatment"} -> result of one RAG query
-  POST /warmup {"n": int}                -> n unmeasured warm-up queries
+GET /health, POST /query {"benchmark","qid","treatment"}, POST /warmup {"n"}
 """
 from __future__ import annotations
 
@@ -44,7 +36,7 @@ class Handler(BaseHTTPRequestHandler):
     items: dict = None
     info: dict = None
 
-    def log_message(self, fmt, *args):  # keep stdout quiet during measurements
+    def log_message(self, fmt, *args):  # no request logging
         pass
 
     def _send(self, code: int, obj: dict):

@@ -1,6 +1,4 @@
-"""Generate a SYNTHETIC run_table.csv with the same schema as Experiment Runner's
-output, only to test analysis/analysis.R end to end. The numbers are random and
-carry no empirical meaning; never report them."""
+"""Random run_table.csv for testing analysis.R (fake numbers)."""
 import csv
 import random
 import sys

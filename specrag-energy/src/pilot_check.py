@@ -1,11 +1,6 @@
-"""Pilot checks (Section 5.5) on an Experiment Runner results folder.
+"""Summary of a pilot run: time, CV of energy, format compliance, counter vs samples.
 
     python src/pilot_check.py experiments/specrag_pubhealth_pilot
-
-Reports per treatment: mean T_q (to recompute the total duration), coefficient of
-variation of E_q over repetitions, drafter format-compliance, and the agreement
-between counter-based GPU energy (NVML total-energy counter) and the trapezoidal
-integral of the 100 ms power samples.
 """
 import csv
 import json
@@ -56,8 +51,9 @@ if diffs:
     print(f"GPU energy, integrated samples vs counter: median rel. diff {statistics.median(diffs):+.3f}, "
           f"range [{min(diffs):+.3f}, {max(diffs):+.3f}]  (n={len(diffs)})")
 
-# projected duration of the full experiment (one benchmark block)
-cool = float(os.environ.get("ER_COOLDOWN_MS", 20000)) / 1000
+# estimated duration of one benchmark
+_cfg = json.load(open(os.environ.get("ER_CONFIG", "config.json")))
+cool = float(os.environ.get("ER_COOLDOWN_MS", _cfg["experiment"]["cooldown_ms"])) / 1000
 q, reps = 30, 10
 mean_tq = total_s / max(1, len(by_t))
 per_run = mean_tq + cool + 2.0

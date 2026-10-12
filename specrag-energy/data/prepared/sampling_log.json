@@ -1,0 +1,107 @@
+{
+  "seed": 2026,
+  "R": 10,
+  "Q": 30,
+  "warmup": 5,
+  "ctx_mode": "scored_only",
+  "benchmarks": {
+    "pubhealth": {
+      "raw": 987,
+      "eligible": 987,
+      "excluded": {
+        "no_gold": 0,
+        "too_few_docs": 0,
+        "too_long": 0,
+        "duplicate_id": 0
+      },
+      "sampled_qids": [
+        "pubhealth-328",
+        "pubhealth-128",
+        "pubhealth-358",
+        "pubhealth-670",
+        "pubhealth-341",
+        "pubhealth-311",
+        "pubhealth-135",
+        "pubhealth-610",
+        "pubhealth-827",
+        "pubhealth-47",
+        "pubhealth-265",
+        "pubhealth-643",
+        "pubhealth-322",
+        "pubhealth-445",
+        "pubhealth-742",
+        "pubhealth-45",
+        "pubhealth-238",
+        "pubhealth-724",
+        "pubhealth-635",
+        "pubhealth-271",
+        "pubhealth-588",
+        "pubhealth-688",
+        "pubhealth-579",
+        "pubhealth-639",
+        "pubhealth-802",
+        "pubhealth-248",
+        "pubhealth-485",
+        "pubhealth-497",
+        "pubhealth-453",
+        "pubhealth-286"
+      ],
+      "warmup_qids": [
+        "pubhealth-695",
+        "pubhealth-681",
+        "pubhealth-940",
+        "pubhealth-622",
+        "pubhealth-172"
+      ]
+    },
+    "triviaqa": {
+      "raw": 7313,
+      "eligible": 7313,
+      "excluded": {
+        "no_gold": 0,
+        "too_few_docs": 0,
+        "too_long": 0,
+        "duplicate_id": 0
+      },
+      "sampled_qids": [
+        "sfq_10342",
+        "odql_7033",
+        "odql_11533",
+        "bt_160",
+        "sfq_15080",
+        "odql_14120",
+        "sfq_24009",
+        "qg_749",
+        "odql_1804",
+        "odql_2050",
+        "sfq_25673",
+        "qf_2311",
+        "qg_4628",
+        "bt_4410",
+        "sfq_4388",
+        "bt_8",
+        "tb_2213",
+        "qw_14845",
+        "sfq_22756",
+        "sfq_13588",
+        "sfq_22096",
+        "odql_8911",
+        "sfq_23110",
+        "jp_1395",
+        "sfq_15126",
+        "qg_271",
+        "jp_1192",
+        "jp_4329",
+        "odql_1436",
+        "tb_1764"
+      ],
+      "warmup_qids": [
+        "odql_704",
+        "sfq_17387",
+        "qf_2755",
+        "qw_13906",
+        "odql_13192"
+      ]
+    }
+  }
+}

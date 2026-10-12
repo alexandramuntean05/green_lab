@@ -1,14 +1,8 @@
-"""Prompt templates and output parsing.
+"""Prompts and output parsing.
 
-Drafter prompt   : adapted from Wang et al. [3], Appendix H (Figure 6).
-Standard RAG     : adapted from Wang et al. [3], Appendix I (Figure 8, prompt for
-                   instruction-tuned LMs), extended with the same
-                   "## Rationale / ## Response" output format as the drafter so
-                   that both architectures deliver a response (alpha) and a
-                   rationale (beta) and N_final is defined identically.
-PubHealth task   : task instruction from Self-RAG (TASK_INST["fever"],
-                   retrieval_lm/utils.py), as used for this benchmark by [3].
-Verifier text    : [Q, alpha, beta, R, "Yes"] as in Wang et al. [3], Sec. 3.3.
+Drafter and standard RAG prompts are based on the ones in the Speculative RAG
+paper; both use the same Rationale/Response output format.
+PubHealth instruction is taken from Self-RAG.
 """
 from __future__ import annotations
 
@@ -22,6 +16,22 @@ OUTPUT_FORMAT = ("Answer in exactly this format:\n"
                  "## Response: <the answer only>")
 
 
+# one-shot examples (written by us) to show the output format
+DEMOS = {
+    "triviaqa": ("### Example\n"
+                 "## Instruction: Which river flows through the city of Vienna?\n"
+                 "## Evidence:\n[1] Vienna\nVienna is the capital of Austria and lies on the river Danube.\n"
+                 "## Rationale: The evidence states that Vienna lies on the Danube.\n"
+                 "## Response: The Danube\n### End of example\n\n"),
+    "pubhealth": ("### Example\n"
+                  "## Instruction: Is the following statement correct or not? Say true if it's correct; "
+                  "otherwise say false.\n\n### Input:\nDrinking water is necessary for human survival.\n"
+                  "## Evidence:\n[1] Water\nHumans cannot survive more than a few days without drinking water.\n"
+                  "## Rationale: The evidence says humans cannot survive without water, which supports the statement.\n"
+                  "## Response: true\n### End of example\n\n"),
+}
+
+
 def task_instruction(question: str, benchmark: str) -> str:
     if benchmark == "pubhealth":
         return f"{PUBHEALTH_INST}\n\n### Input:\n{question}"
@@ -32,30 +42,30 @@ def format_docs(docs) -> str:
     return "\n".join(f"[{i + 1}] {d['title']}\n{d['text']}" for i, d in enumerate(docs))
 
 
-def drafter_prompt(question: str, docs_text: str, benchmark: str) -> str:
+def drafter_prompt(question: str, docs_text: str, benchmark: str, one_shot: bool = False) -> str:
     return ("Response to the instruction. Also provide rationale for your response.\n"
+            + (DEMOS[benchmark] if one_shot else "") +
             f"## Instruction: {task_instruction(question, benchmark)}\n"
             f"## Evidence:\n{docs_text}\n\n{OUTPUT_FORMAT}")
 
 
-def standard_rag_prompt(question: str, docs_text: str, benchmark: str) -> str:
+def standard_rag_prompt(question: str, docs_text: str, benchmark: str, one_shot: bool = False) -> str:
     return ("Below is an instruction that describes a task. Write a response for it and "
             "state your explanation supporting your response.\n"
+            + (DEMOS[benchmark] if one_shot else "") +
             f"### Instruction: {task_instruction(question, benchmark)}\n"
             f"### Evidence:\n{docs_text}\n\n{OUTPUT_FORMAT}")
 
 
-_RAT = re.compile(r"##\s*Rationale\s*:?(.*?)(?=##\s*Response|\Z)", re.S | re.I)
-_RESP = re.compile(r"##\s*Response\s*:?(.*)", re.S | re.I)
+# accepts "## Rationale:", "**Rationale:**", "Rationale:" etc.
+_H = r"(?:^|\n)[ \t]*(?:#+[ \t]*|\*\*)?"
+_RAT = re.compile(_H + r"Rationale[ \t]*:?(?:\*\*)?[ \t]*:?(.*?)(?=" + _H + r"Response\b|\Z)", re.S | re.I)
+_RESP = re.compile(_H + r"Response[ \t]*:?(?:\*\*)?[ \t]*:?(.*)", re.S | re.I)
 
 
 def parse_output(text: str):
-    """Return (rationale, response, char_span_rationale, char_span_response, ok).
-
-    Spans are character offsets in `text` used to attribute generated tokens to
-    beta (rationale) and alpha (response). If the format is not followed, the
-    whole output is treated as the response and ok=False is recorded.
-    """
+    # returns rationale, response, their character spans, ok
+    # if the format is not followed, the whole text counts as the response
     m_rat, m_resp = _RAT.search(text), _RESP.search(text)
     if m_resp is None:
         return "", text.strip(), (0, 0), (0, len(text)), False
@@ -65,9 +75,8 @@ def parse_output(text: str):
             rat_span, resp_span, m_rat is not None)
 
 
-# ------------------------------------------------------------------ correctness
 def match(prediction: str, golds) -> int:
-    """Self-RAG metrics.match: 1 if any gold string is contained in the prediction."""
+    # same as match() in Self-RAG
     return int(any(g in prediction for g in golds))
 
 
@@ -77,10 +86,7 @@ def pubhealth_label(prediction: str):
 
 
 def is_correct(prediction: str, golds, benchmark: str) -> dict:
-    """`correct` follows the metric of the benchmark as used by [3] and Self-RAG:
-    TriviaQA: gold alias contained in the response (case-sensitive `match`);
-    PubHealth: accuracy of the extracted true/false label.
-    `correct_norm` is a case-insensitive variant reported for robustness only."""
+    # TriviaQA: gold answer contained in the response, PubHealth: true/false label
     if benchmark == "pubhealth":
         label = pubhealth_label(prediction)
         c = int(label is not None and label == golds[0])

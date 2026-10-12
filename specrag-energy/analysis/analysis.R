@@ -1,10 +1,6 @@
-# Data analysis for "Energy Efficiency of Speculative RAG" (Section 4.5).
-#
+# Analysis of one benchmark:
 #   Rscript analysis/analysis.R experiments/specrag_pubhealth/run_table.csv results/pubhealth
-#
-# Each benchmark is analysed separately. Packages: afex (RM-ANOVA), ARTool (ART
-# ANOVA); everything else is base R. All tests are two-sided, alpha = 0.05,
-# Holm-Bonferroni correction within each research question.
+# alpha = 0.05, Holm correction per research question
 
 suppressPackageStartupMessages({
   library(afex)
@@ -18,41 +14,47 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 ALPHA <- 0.05
 sink(file.path(out_dir, "analysis_log.txt"), split = TRUE)
 
-# ------------------------------------------------------------------ load data
+# load data
 raw <- read.csv(in_csv, stringsAsFactors = FALSE)
 cat("Runs in table:", nrow(raw), " not ok:", sum(raw$status != "ok"), "\n")
 d <- subset(raw, status == "ok" & !is.na(E_q_J))
+# drop runs without CPU energy (EnergiBridge failed)
+if ("energy_sources" %in% names(d)) {
+  partial <- d$energy_sources != "gpu+cpu_energibridge"
+  cat("Runs without CPU energy (excluded):", sum(partial), "\n")
+  if (any(partial)) print(d[partial, c("__run_id", "treatment", "qid")[c("__run_id", "treatment", "qid") %in% names(d)]])
+  d <- d[!partial, ]
+}
 cat("Runs used:", nrow(d), "\n")
 TR  <- paste0("T", 0:9)
 MK  <- data.frame(treatment = TR, m = c(NA, rep(c(2, 5, 10), each = 3)),
                   k = c(NA, rep(c(1, 2, 4), 3)))
 d$treatment <- factor(d$treatment, levels = TR)
 
-# ---------------------------------------------- measurement reliability (4.2)
+# CV over repetitions
 cv <- aggregate(E_q_J ~ qid + treatment, d, function(x) sd(x) / mean(x))
 names(cv)[3] <- "cv_E"
 cat("\nCoefficient of variation of E_q across repetitions (per question x treatment):\n")
 print(summary(cv$cv_E))
 write.csv(cv, file.path(out_dir, "reliability_cv.csv"), row.names = FALSE)
 
-# ----------------------------- average the repetitions of each question x treatment
+# mean over repetitions per question and treatment
 num <- c("E_q_J", "E_gpu_J", "E_cpu_J", "T_q_s", "P_avg_W", "E_tok_J",
          "N_in", "N_int", "N_final", "N_gen", "correct", "correct_norm")
 num <- num[num %in% names(d)]
 for (v in num) d[[v]] <- suppressWarnings(as.numeric(d[[v]]))
 a <- aggregate(d[, num], by = list(qid = d$qid, treatment = d$treatment), FUN = mean, na.rm = TRUE)
-# greedy decoding + fixed seeds -> the answer is identical across repetitions;
-# a question counts as correct if it was correct in the majority of repetitions
+# answers are the same in every repetition (greedy), so use the majority
 a$correct <- as.integer(a$correct >= 0.5)
 a <- merge(a, MK, by = "treatment")
 a$treatment <- factor(a$treatment, levels = TR)
-# keep only questions that have all 10 treatments (complete blocks)
+# only questions with all 10 treatments
 complete <- names(which(table(a$qid) == length(TR)))
 a <- subset(a, qid %in% complete)
 cat("Complete blocks (questions):", length(complete), "\n")
 write.csv(a, file.path(out_dir, "per_question_treatment_means.csv"), row.names = FALSE)
 
-# -------------------------------------------------------------- descriptives
+# descriptive statistics
 desc <- do.call(rbind, lapply(TR, function(t) {
   x <- subset(a, treatment == t)
   data.frame(treatment = t,
@@ -76,8 +78,8 @@ boxplot(T_q_s ~ treatment, a, main = "Execution time", ylab = "s", las = 2)
 boxplot(P_avg_W ~ treatment, a, main = "Average power", ylab = "W", las = 2)
 invisible(dev.off())
 
-# ------------------------------------------------------------------ helpers
-cliffs_delta <- function(x, y) {           # Cliff (1993); Romano et al. (2006) thresholds
+# helpers
+cliffs_delta <- function(x, y) {
   dom <- outer(x, y, "-")
   (sum(dom > 0) - sum(dom < 0)) / (length(x) * length(y))
 }
@@ -98,14 +100,14 @@ paired_test <- function(x, y, label) {
   }
 }
 
-# -------------------------------------------------------------- RQ1: T0 vs T5
+# RQ1: T0 vs T5
 cat("\n=== RQ1: Standard RAG (T0) vs Speculative RAG m=5,k=2 (T5) ===\n")
 w <- reshape(a[a$treatment %in% c("T0", "T5"), c("qid", "treatment", "E_q_J", "T_q_s", "P_avg_W", "correct")],
              idvar = "qid", timevar = "treatment", direction = "wide")
 rq1 <- rbind(paired_test(w$E_q_J.T5, w$E_q_J.T0, "E_q"),
              paired_test(w$T_q_s.T5, w$T_q_s.T0, "T_q"),
              paired_test(w$P_avg_W.T5, w$P_avg_W.T0, "P_avg"))
-# exact McNemar test = binomial test on the discordant pairs
+# exact McNemar = binomial test on discordant pairs
 b <- sum(w$correct.T0 == 1 & w$correct.T5 == 0); c <- sum(w$correct.T0 == 0 & w$correct.T5 == 1)
 mc_p <- if (b + c > 0) binom.test(b, b + c, 0.5)$p.value else 1
 rq1 <- rbind(rq1, data.frame(metric = "correctness", test = "exact McNemar", shapiro_p = NA,
@@ -117,7 +119,7 @@ print(rq1, row.names = FALSE)
 cat(sprintf("Correct only under T0: %d, only under T5: %d\n", b, c))
 write.csv(rq1, file.path(out_dir, "rq1_tests.csv"), row.names = FALSE)
 
-# ------------------------------------------------ RQ2: m x k within Speculative RAG
+# RQ2: m and k (T1-T9)
 cat("\n=== RQ2: effects of m and k on E_q (T1-T9) ===\n")
 s <- subset(a, treatment != "T0")
 s$m <- factor(s$m); s$k <- factor(s$k); s$qid <- factor(s$qid)
@@ -147,7 +149,7 @@ with(s, interaction.plot(k, m, E_q_J, fun = mean, ylab = "mean E_q (J)", xlab = 
                          trace.label = "m (drafts)"))
 invisible(dev.off())
 
-# ------------------------------------------------- RQ3: time as a proxy for energy
+# RQ3: time vs energy
 cat("\n=== RQ3: execution time vs energy (all treatments) ===\n")
 sp <- cor.test(a$T_q_s, a$E_q_J, method = "spearman", exact = FALSE)
 fr <- friedman.test(P_avg_W ~ treatment | qid, data = a)
@@ -162,7 +164,7 @@ rq3$p_holm <- p.adjust(rq3$p, "holm")
 rq3$reject_H0 <- rq3$p_holm < ALPHA
 print(rq3, row.names = FALSE)
 write.csv(rq3, file.path(out_dir, "rq3_tests.csv"), row.names = FALSE)
-# does ranking treatments by time give the same order as ranking by energy?
+# same ranking by time and by energy?
 rank_cmp <- data.frame(treatment = desc$treatment, rank_by_T = rank(desc$T_mean), rank_by_E = rank(desc$E_mean))
 cat("Kendall tau between treatment rankings by time and by energy:",
     format(cor(rank_cmp$rank_by_T, rank_cmp$rank_by_E, method = "kendall"), digits = 3), "\n")
@@ -172,7 +174,7 @@ plot(a$T_q_s, a$E_q_J, col = as.integer(a$treatment), pch = 19, xlab = "T_q (s)"
 legend("topleft", legend = TR, col = seq_along(TR), pch = 19, cex = 0.7, ncol = 2)
 invisible(dev.off())
 
-# --------------------------------------------------- energy / quality trade-off
+# energy vs accuracy
 cat("\n=== Energy vs answer quality ===\n")
 tradeoff <- desc[, c("treatment", "E_mean", "E_diff_vs_T0_pct", "accuracy_pct")]
 acc0 <- tradeoff$accuracy_pct[tradeoff$treatment == "T0"]

@@ -1,98 +1,69 @@
-# Energy Efficiency of Speculative RAG — experiment package
+# Speculative RAG energy experiment
 
-Code for Section 5 (Experiment Execution) of *Energy Efficiency of Speculative
-Retrieval-Augmented Generation: A Controlled Experiment* (The Green Team, Green Lab 2026/2027).
+Green Lab 2026/2027, The Green Team.
 
-It runs Standard RAG (T0) and Speculative RAG with m ∈ {2,5,10}, k ∈ {1,2,4} (T1–T9)
-on PubHealth and TriviaQA, and measures energy per query with hardware counters.
+Compares the energy per query of Standard RAG (T0) and Speculative RAG with
+m in {2, 5, 10} and k in {1, 2, 4} (T1-T9) on PubHealth and TriviaQA
+(30 questions x 10 treatments x 10 repetitions per benchmark).
 
-## Layout
+Models: Qwen2.5-0.5B-Instruct (drafter), Qwen2.5-1.5B-Instruct (verifier / standard RAG),
+InBedder-RoBERTa-large (embeddings). Hardware: glg4, RTX 3070 8 GB, i9-11900KF.
 
-| Path | Role |
+## Files
+
+| Path | |
 |---|---|
-| `RunnerConfig.py` | Experiment Runner config: run table, randomisation, cool-down, measurement hooks |
-| `src/rag_server.py` | Long-lived HTTP server on localhost holding all models (system under test) |
-| `src/rag_pipeline.py` | Standard RAG and Speculative RAG (Wang et al., ICLR 2025, Alg. 1) |
-| `src/prompts.py` | Prompts (Wang et al. App. H/I), output parsing, correctness metrics |
-| `src/energy.py` | NVML GPU energy counter, RAPL CPU energy counter, 100 ms power sampler |
-| `src/prepare_data.py` | Stratified random sampling of 30 questions per benchmark (+5 warm-up) |
-| `src/requeue_failed.py` | Marks failed runs TODO so Experiment Runner re-executes them |
-| `src/cooldown_probe.py` | Pilot: seconds until GPU power/temperature return to idle after T9 |
-| `src/pilot_check.py` | Pilot: T_q per treatment, CV of E_q, format compliance, counter vs sampled energy, projected duration |
-| `paper/section5.tex`, `paper/section5.bib` | Section 5 text (LaTeX, acmart) and its new references |
-| `analysis/analysis.R` | Section 4.5 analysis (RQ1–RQ3, Holm, effect sizes, plots) |
-| `scripts/setup.sh`, `scripts/run.sh` | Setup and execution phases |
-| `tests/` | Tiny random models + synthetic data for an offline smoke test |
+| `RunnerConfig.py` | Experiment Runner config (run table, cool-down, measurement) |
+| `src/rag_server.py` | HTTP server on localhost that keeps the models loaded |
+| `src/rag_pipeline.py` | Standard RAG and Speculative RAG |
+| `src/prompts.py` | prompts, output parsing, correctness |
+| `src/energy.py` | GPU energy (NVML), CPU energy (RAPL / EnergiBridge), power sampler |
+| `src/prepare_data.py` | samples the questions |
+| `src/requeue_failed.py` | sets failed runs back to TODO |
+| `src/pilot_check.py`, `src/cooldown_probe.py`, `src/format_probe.py`, `src/counter_validation.py` | pilot scripts |
+| `analysis/analysis.R` | statistical analysis (RQ1-RQ3) |
+| `scripts/setup.sh`, `scripts/run.sh` | setup and running |
+| `tests/` | tiny models and fake data for a smoke test |
+| `data/prepared/` | the sampled questions with their documents |
+| `experiments/specrag_*/run_table.csv` | final run tables |
+| `results/` | output of `analysis.R` |
 
-## Why a separate server process
+## Measurement
 
-Experiment Runner executes every run in a fresh child process
-(`ExperimentController.do_experiment` → `multiprocessing.Process`). Models loaded in the
-runner would be reloaded per run, and a CUDA context cannot be inherited across `fork()`.
-The models therefore live in `rag_server.py`, are loaded once, stay resident in GPU memory
-(Section 4.2), and are called over HTTP on `127.0.0.1`. The server is single-threaded, so
-exactly one query is processed at a time.
+- `E_gpu_J`: difference of the NVML total energy counter.
+- `E_cpu_J`: CPU package energy. RAPL is not readable directly on the cluster, so it is read
+  through EnergiBridge (50 ms interval, counter interpolated at t0 and t1). No DRAM domain.
+- `E_q_J = E_gpu_J + E_cpu_J`, `T_q_s = t1 - t0`, `P_avg_W = E_q / T_q`.
+- `power_trace.csv` (100 ms GPU power) is only for monitoring.
 
-## What is measured per run
-
-`start_measurement` reads the counters and then t0; `stop_measurement` records t1 and
-then reads the counters again.
-
-- `E_gpu_J`: NVML `nvmlDeviceGetTotalEnergyConsumption` difference (mJ counter, Volta+).
-- `E_cpu_J`: RAPL `energy_uj` difference, package + dram zones, wrap-around handled.
-- `E_q_J = E_gpu_J + E_cpu_J`, `T_q_s = t1 − t0`, `P_avg_W = E_q/T_q`, `E_tok_J = E_q/N_final`.
-- `N_in` (all LLM input tokens), `N_gen`, `N_final` (tokens of the delivered response α),
-  `N_int = N_gen − N_final`, `N_emb` (embedder tokens), stage timings, `correct`.
-
-Raw data per run: `response.json` (answer, rationale, draft scores, subsets) and
-`power_trace.csv` (100 ms GPU power/temperature; for plots only, not used to compute E).
-
-**RAPL permission:** since Linux 5.10, `energy_uj` is root-readable only. If the cluster
-does not grant read access, `E_cpu_J` is NA and `energy_sources` = `gpu`. Ask the course
-staff (e.g. a udev rule / `chmod o+r` on `energy_uj`) *before* the pilot.
-
-## Steps on the cluster
+## Running
 
 ```bash
-git clone <this repo> specrag-energy && cd specrag-energy
-bash scripts/setup.sh                       # venv, Experiment Runner @56620fa, models, data
+bash scripts/setup.sh
 python src/prepare_data.py --tokenizer Qwen/Qwen2.5-1.5B-Instruct
-bash scripts/run.sh smoke                   # optional, CPU only
 tmux new -s green
-bash scripts/run.sh pilot                   # decide cool-down, check CV, estimate duration
-python src/pilot_check.py experiments/specrag_pubhealth_pilot
-python src/cooldown_probe.py --treatment T9  # needs a running rag_server
-bash scripts/run.sh pubhealth               # ≈ half of the full experiment
+bash scripts/run.sh pilot
+bash scripts/run.sh pubhealth
 bash scripts/run.sh triviaqa
-bash scripts/run.sh analyse
+Rscript analysis/analysis.R experiments/specrag_pubhealth/run_table.csv results/pubhealth
+Rscript analysis/analysis.R experiments/specrag_triviaqa/run_table.csv results/triviaqa
 ```
 
-The analysis needs R with the packages `afex` and `ARTool`
-(`install.packages(c("afex", "ARTool"))`). `setup.sh` does not install R; if R is not
-available on the node, copy `experiments/` to a laptop and run `analysis/analysis.R` there.
+R needs the packages `afex` and `ARTool`.
 
-Environment variables: `ER_BENCHMARK`, `ER_PILOT=1`, `ER_REPS`, `ER_COOLDOWN_MS`,
-`ER_CONFIG`, `ER_DEVICE`.
+The data comes from the Self-RAG eval files. The Google Drive link in `setup.sh` no longer
+works; we used the copy on Hugging Face (`RAGLAB/data`, `eval_datasets/PubHealth` and
+`eval_datasets/TriviaQA`).
 
-## Values the team must confirm (TBD)
+If Triton fails with `Python.h: No such file or directory` (missing python3-dev on the node),
+install Python 3.12 headers in your home folder and set
+`export C_INCLUDE_PATH=$HOME/pyhdr/include/python3.12` before running.
 
-- GPU: NVIDIA GeForce RTX 3070, 8 GB (NVML energy counter verified to work).
-  Models: Qwen2.5-1.5B-Instruct verifier (~3.1 GB bf16) + Qwen2.5-0.5B-Instruct drafter (~1.0 GB)
-  + InBedder (~0.7 GB). Wang et al.'s Mistral-7B / Mixtral-8x7B do not fit in 8 GB; quantisation
-  is avoided because it changes the computation and would confound energy.
-- Exact TriviaQA / PubHealth file names inside the Self-RAG `eval_data` archive.
-- Cool-down (default 20 s) and warm-up count (default 10) → set from the pilot.
+## Differences from Wang et al. (ICLR 2025)
 
-## Deviations from Wang et al. [3] (report as threats to validity)
-
-1. The drafter is an off-the-shelf instruction-tuned model; the drafter instruction tuning
-   of [3] (40k examples with Gemini-Ultra rationales) is not reproduced.
-2. Retrieval is cached (Self-RAG pre-retrieved Contriever-MS MARCO top-10); retrieval energy
-   is therefore not measured. It is identical across treatments.
-3. InBedder embeddings are computed online inside the measured interval ([3] pre-computes them).
-4. If fewer than m unique subsets exist (∏ cluster sizes < m, e.g. k=2 with a 1/9 split),
-   the unique subsets are reused cyclically so that exactly m drafts are generated
-   (`n_unique_subsets` is logged). Algorithm 1 of [3] would not terminate in this case.
-5. Drafts are generated as one batch on one GPU instead of m separate drafter endpoints.
-6. Probabilities are combined in log space (numerically stable, mathematically identical).
-7. Greedy decoding is enforced explicitly (model-shipped sampling / repetition penalty overridden).
+- The drafter is not fine-tuned.
+- Retrieval is pre-computed (Contriever documents from Self-RAG), so it is not measured.
+- InBedder embeddings are computed during the measured run.
+- If fewer than m different subsets exist, subsets are reused so there are always m drafts.
+- Drafts are generated in one batch on one GPU.
+- Greedy decoding for all models.

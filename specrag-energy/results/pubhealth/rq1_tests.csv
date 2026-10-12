@@ -1,0 +1,5 @@
+"metric","test","shapiro_p","statistic","p","effect","effect_size","p_holm","reject_H0"
+"E_q","paired t-test",0.880010033990084,0.220128262720824,0.827313551858923,"Cohen's d_z",0.0401897383455395,1,FALSE
+"T_q","paired t-test",0.897339298905806,2.74756962328609,0.0102147741334285,"Cohen's d_z",0.501635286996588,0.0306443224002855,TRUE
+"P_avg","paired t-test",0.590921186388857,-23.9875422078393,1.12853583014003e-20,"Cohen's d_z",-4.37950598878029,4.51414332056014e-20,TRUE
+"correctness","exact McNemar",NA,12,1,"discordant (T0 only / T5 only)",NA,1,FALSE

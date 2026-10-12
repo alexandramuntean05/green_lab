@@ -1,10 +1,6 @@
-"""Smoke-test fixtures: randomly initialised *tiny* models and synthetic data.
+"""Tiny random models and fake data for the smoke test (no download needed).
 
-No network access is needed. The models produce meaningless text; the purpose is
-only to exercise every code path (server, pipelines, scoring, Experiment Runner
-hooks, CSV output, analysis script) before spending GPU hours.
-
-    python tests/make_fixtures.py  &&  see README "Smoke test"
+    python tests/make_fixtures.py
 """
 import json
 import os
@@ -35,7 +31,7 @@ def make_tok(specials, chat=False):
     return tok
 
 
-# ---- causal LM (Qwen2 architecture, like the proposed drafter/verifier)
+# tiny Qwen2 model
 t = make_tok(["<|endoftext|>", "<|im_start|>", "<|im_end|>"])
 lm_tok = PreTrainedTokenizerFast(tokenizer_object=t, eos_token="<|im_end|>", pad_token="<|endoftext|>",
                                  unk_token="<unk>")
@@ -49,11 +45,11 @@ for name, layers in (("tiny-drafter", 2), ("tiny-verifier", 3)):
     model = Qwen2ForCausalLM(cfg)
     model.generation_config.eos_token_id = [lm_tok.eos_token_id]
     model.generation_config.pad_token_id = lm_tok.pad_token_id
-    model.generation_config.repetition_penalty = 1.05   # like Qwen2.5-Instruct; must be overridden
+    model.generation_config.repetition_penalty = 1.05   # as in Qwen2.5-Instruct
     model.save_pretrained(os.path.join(OUT, name))
     lm_tok.save_pretrained(os.path.join(OUT, name))
 
-# ---- masked LM (RoBERTa architecture, like InBedder)
+# tiny RoBERTa model
 t = make_tok(["<s>", "</s>", "<pad>", "<mask>"])
 mlm_tok = PreTrainedTokenizerFast(tokenizer_object=t, bos_token="<s>", eos_token="</s>", sep_token="</s>",
                                   cls_token="<s>", pad_token="<pad>", mask_token="<mask>", unk_token="<unk>")
@@ -65,14 +61,17 @@ cfg = RobertaConfig(vocab_size=len(mlm_tok), hidden_size=64, intermediate_size=1
 RobertaForMaskedLM(cfg).save_pretrained(os.path.join(OUT, "tiny-inbedder"))
 mlm_tok.save_pretrained(os.path.join(OUT, "tiny-inbedder"))
 
-# ---- synthetic raw benchmark files in Self-RAG format
+# fake data files in Self-RAG format
 raw = os.path.join(OUT, "raw")
 os.makedirs(raw, exist_ok=True)
 
 
 def ctxs():
-    return [{"title": rng.choice(WORDS).title(), "text": " ".join(rng.choice(WORDS) for _ in range(60))}
-            for _ in range(12)]
+    # some unscored passages at ranks 6-10, like the real TriviaQA file
+    scored = [{"id": str(i), "title": rng.choice(WORDS).title(), "score": str(round(2.0 - 0.05 * i, 3)),
+               "text": " ".join(rng.choice(WORDS) for _ in range(60))} for i in range(15)]
+    extra = [{"title": "NOSCORE", "text": "inserted passage without score"} for _ in range(rng.randint(0, 5))]
+    return scored[:5] + extra + scored[5:]
 
 
 with open(os.path.join(raw, "health_claims_processed.jsonl"), "w") as fh:

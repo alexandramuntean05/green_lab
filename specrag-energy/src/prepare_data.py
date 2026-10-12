@@ -1,16 +1,8 @@
-"""Stratified random sampling of the experimental questions (Section 4.1).
+"""Samples the questions for each benchmark.
 
-Input : the Self-RAG evaluation files, which already contain the top documents
-        retrieved by Contriever-MS MARCO from the DPR Wikipedia split
-        (field `ctxs`; https://github.com/AkariAsai/self-rag, section "Inference").
-Output: data/prepared/<benchmark>.jsonl          (the Q sampled questions)
-        data/prepared/<benchmark>_warmup.jsonl   (disjoint warm-up questions)
-        data/prepared/sampling_log.json          (seed, pool sizes, exclusions)
-
-Each benchmark is one stratum; questions are drawn by simple random sampling
-with a fixed seed. A question is eligible only if it has a gold answer and at
-least R retrieved documents, and (if --tokenizer is given) if the largest prompt
-of the experiment fits the model's context window.
+Input: Self-RAG eval files (documents already retrieved with Contriever, field `ctxs`).
+Output: data/prepared/<benchmark>.jsonl, <benchmark>_warmup.jsonl, sampling_log.json
+Random sample with a fixed seed. Questions need a gold answer and at least R documents.
 """
 from __future__ import annotations
 
@@ -27,19 +19,29 @@ from prompts import standard_rag_prompt, format_docs  # noqa: E402
 def load_jsonl(path):
     with open(path) as fh:
         text = fh.read().strip()
-    if text.startswith("["):  # some Self-RAG files are JSON arrays
+    if text.startswith("["):  # json array instead of jsonl
         return json.loads(text)
-    return [json.loads(line) for line in text.splitlines() if line.strip()]
+    return [json.loads(line) for line in text.split("\n") if line.strip()]
 
 
-def normalise(item: dict, benchmark: str, idx: int):
+def select_ctxs(ctxs, mode: str):
+    # scored_only: only documents with a Contriever score, sorted by score
+    # (the TriviaQA file has extra unscored documents at ranks 6-10)
+    # file_order: keep the order of the file
+    if mode == "file_order":
+        return ctxs
+    scored = [c for c in ctxs if c.get("score") is not None]
+    return sorted(scored, key=lambda c: float(c["score"]), reverse=True)
+
+
+def normalise(item: dict, benchmark: str, idx: int, ctx_mode: str = "scored_only"):
     question = item.get("question") or item.get("claim") or item.get("instruction") or item.get("input")
     golds = item.get("answers") or item.get("golds") or item.get("output") or item.get("label")
     if isinstance(golds, str):
         golds = [golds]
     if benchmark == "pubhealth" and golds:
         golds = [str(g).strip().lower() for g in golds]
-    ctxs = item.get("ctxs") or item.get("top_contexts") or []
+    ctxs = select_ctxs(item.get("ctxs") or item.get("top_contexts") or [], ctx_mode)
     ctxs = [{"title": c.get("title", ""), "text": c.get("text", "")} for c in ctxs]
     qid = str(item.get("id", item.get("question_id", f"{benchmark}-{idx}")))
     return {"qid": qid, "benchmark": benchmark, "question": question, "golds": golds, "ctxs": ctxs}
@@ -66,13 +68,14 @@ def main():
         max_ctx = tok.model_max_length
     max_new = cfg["generation"]["max_new_tokens"]
 
-    log = {"seed": seed, "R": R, "Q": Q, "warmup": W, "benchmarks": {}}
+    ctx_mode = cfg["retrieval"].get("ctx_mode", "scored_only")
+    log = {"seed": seed, "R": R, "Q": Q, "warmup": W, "ctx_mode": ctx_mode, "benchmarks": {}}
     for bench, key in (("pubhealth", "pubhealth_raw"), ("triviaqa", "triviaqa_raw")):
         raw = load_jsonl(cfg["data"][key])
         pool, excluded = [], {"no_gold": 0, "too_few_docs": 0, "too_long": 0, "duplicate_id": 0}
         seen = set()
         for i, item in enumerate(raw):
-            it = normalise(item, bench, i)
+            it = normalise(item, bench, i, ctx_mode)
             if it["qid"] in seen:
                 excluded["duplicate_id"] += 1
                 continue
@@ -85,7 +88,7 @@ def main():
                 continue
             it["ctxs"] = it["ctxs"][:R]
             if tok is not None:
-                # Largest prompt of the experiment: Standard RAG with all R documents.
+                # check that the longest prompt (standard RAG) fits
                 prompt = standard_rag_prompt(it["question"], format_docs(it["ctxs"]), bench)
                 n = len(tok.apply_chat_template([{"role": "user", "content": prompt}], tokenize=True,
                                                 add_generation_prompt=True))
@@ -95,6 +98,10 @@ def main():
             pool.append(it)
 
         rng = random.Random(f"{seed}-{bench}")
+        if len(pool) < Q + W:
+            raise SystemExit(f"{bench}: only {len(pool)} eligible questions, {Q + W} needed "
+                             f"(excluded: {excluded}). With ctx_mode='scored_only' every passage "
+                             f"needs a 'score' field.")
         chosen = rng.sample(pool, Q + W)
         sample, warm = chosen[:Q], chosen[Q:]
         for name, rows in ((bench, sample), (f"{bench}_warmup", warm)):

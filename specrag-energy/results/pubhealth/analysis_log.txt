@@ -1,0 +1,84 @@
+Runs in table: 3000  not ok: 0 
+Runs used: 3000 
+
+Coefficient of variation of E_q across repetitions (per question x treatment):
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+0.01315 0.02551 0.03062 0.03134 0.03590 0.07687 
+Complete blocks (questions): 30 
+
+Descriptive statistics per treatment:
+ treatment E_mean E_median  E_sd T_mean T_median   T_sd P_mean P_median  P_sd
+        T0  212.5    200.7 54.63 1.1353   1.0795 0.2660  186.1    186.5 5.396
+        T1  160.7    148.2 57.12 1.1203   1.0369 0.3731  142.4    143.1 3.904
+        T2  137.6    132.0 47.87 0.9543   0.9227 0.3091  143.3    143.2 3.444
+        T3  174.3    172.4 47.55 1.1530   1.1300 0.2927  150.5    151.3 3.744
+        T4  220.8    208.2 61.19 1.3925   1.3192 0.3588  157.8    157.2 3.524
+        T5  215.2    212.7 46.74 1.3152   1.3108 0.2666  163.2    163.2 3.022
+        T6  274.0    267.4 59.12 1.5499   1.5163 0.3186  176.4    176.2 2.812
+        T7  293.2    292.4 63.94 1.6236   1.6217 0.3355  180.2    180.3 3.142
+        T8  322.6    317.9 61.83 1.6839   1.6711 0.3084  191.3    190.7 3.539
+        T9  398.4    431.4 82.26 1.8709   2.0217 0.3641  212.5    211.8 4.506
+ Etok_mean N_in_mean N_int_mean accuracy_pct E_diff_vs_T0_pct
+     212.5    1712.2      68.87        43.33            0.000
+     137.6     937.9     115.53        40.00          -24.373
+     127.3    1234.7     107.87        43.33          -35.253
+     138.4    1851.9     121.67        33.33          -17.993
+     203.3    2329.6     279.90        50.00            3.890
+     203.3    3098.1     283.17        43.33            1.286
+     231.4    4653.6     323.00        40.00           28.963
+     280.3    4684.4     565.53        43.33           37.965
+     281.8    6200.6     579.97        43.33           51.796
+     348.2    9287.6     639.87        46.67           87.506
+ kWh_per_1M_queries
+              59.03
+              44.64
+              38.22
+              48.40
+              61.32
+              59.78
+              76.12
+              81.43
+              89.60
+             110.68
+
+=== RQ1: Standard RAG (T0) vs Speculative RAG m=5,k=2 (T5) ===
+      metric          test shapiro_p   statistic            p
+         E_q paired t-test 0.8800100   0.2201283 8.273136e-01
+         T_q paired t-test 0.8973393   2.7475696 1.021477e-02
+       P_avg paired t-test 0.5909212 -23.9875422 1.128536e-20
+ correctness exact McNemar        NA  12.0000000 1.000000e+00
+                         effect effect_size       p_holm reject_H0
+                    Cohen's d_z  0.04018974 1.000000e+00     FALSE
+                    Cohen's d_z  0.50163529 3.064432e-02      TRUE
+                    Cohen's d_z -4.37950599 4.514143e-20      TRUE
+ discordant (T0 only / T5 only)          NA 1.000000e+00     FALSE
+Correct only under T0: 6, only under T5: 6
+
+=== RQ2: effects of m and k on E_q (T1-T9) ===
+Shapiro-Wilk on ANOVA residuals: p = 0.02168 
+ effect    method          F            p partial_eta_sq       p_holm reject_H0
+      m ART ANOVA 260.412623 5.012819e-60             NA 1.503846e-59      TRUE
+      k ART ANOVA  30.147408 2.298038e-12             NA 4.596075e-12      TRUE
+    m:k ART ANOVA   5.002061 6.942480e-04             NA 6.942480e-04      TRUE
+
+=== RQ3: execution time vs energy (all treatments) ===
+                         hypothesis     test  statistic             p
+             H3a: rho(T_q, E_q) = 0 Spearman   0.968781 1.520611e-182
+ H3b: equal P_avg across treatments Friedman 262.276364  2.543758e-51
+      effect effect_size        p_holm reject_H0
+         rho   0.9687810 3.041221e-182      TRUE
+ Kendall's W   0.9713939  2.543758e-51      TRUE
+Kendall tau between treatment rankings by time and by energy: 0.956 
+
+=== Energy vs answer quality ===
+ treatment E_mean E_diff_vs_T0_pct accuracy_pct lower_energy_no_quality_loss
+        T0  212.5            0.000        43.33                        FALSE
+        T1  160.7          -24.373        40.00                        FALSE
+        T2  137.6          -35.253        43.33                         TRUE
+        T3  174.3          -17.993        33.33                        FALSE
+        T4  220.8            3.890        50.00                        FALSE
+        T5  215.2            1.286        43.33                        FALSE
+        T6  274.0           28.963        40.00                        FALSE
+        T7  293.2           37.965        43.33                        FALSE
+        T8  322.6           51.796        43.33                        FALSE
+        T9  398.4           87.506        46.67                        FALSE
