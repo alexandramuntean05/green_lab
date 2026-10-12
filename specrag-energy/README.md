@@ -51,13 +51,36 @@ Rscript analysis/analysis.R experiments/specrag_triviaqa/run_table.csv results/t
 
 R needs the packages `afex` and `ARTool`.
 
-The data comes from the Self-RAG eval files. The Google Drive link in `setup.sh` no longer
-works; we used the copy on Hugging Face (`RAGLAB/data`, `eval_datasets/PubHealth` and
-`eval_datasets/TriviaQA`).
+The data comes from the Self-RAG eval files. The original Google Drive link no longer works,
+so `setup.sh` downloads the copy on Hugging Face (`RAGLAB/data`).
 
 If Triton fails with `Python.h: No such file or directory` (missing python3-dev on the node),
 install Python 3.12 headers in your home folder and set
 `export C_INCLUDE_PATH=$HOME/pyhdr/include/python3.12` before running.
+
+## Replication
+
+Data in this repository:
+
+- `data/prepared/`: the 30 + 5 sampled questions per benchmark with their 10 documents,
+  and `sampling_log.json` (seed 2026).
+- `experiments/specrag_*/run_table.csv`: one row per run (3000 per benchmark).
+- `experiments/specrag_*/raw_runs.zip`: per run `response.json` (answer, drafts, scores),
+  `energibridge.csv` and `power_trace.csv`.
+- `results/`: output of `analysis.R` on the run tables.
+
+To reproduce the analysis only, run the two `Rscript` commands above (R 4.3.3, afex 1.3.1,
+ARTool 0.11.2 give the same results; the last digits of some p-values can differ between
+R/BLAS versions).
+
+To rerun the experiment: Ubuntu 24.04, NVIDIA RTX 3070 (driver 595.91.07, CUDA 13.0),
+Python 3.12, `requirements.txt`, Experiment Runner commit `56620fa`, EnergiBridge on the PATH.
+Energy values depend on the hardware, so they will only be comparable on the same GPU/CPU.
+
+Execution notes: PubHealth ran on 30 Sep - 1 Oct 2026. TriviaQA ran on 1-2 Oct (1695 runs) and
+9 Oct (remaining 1305 runs, after the first resume failed because of the Triton problem above).
+Three runs where EnergiBridge returned no CPU value were rerun on 10 Oct.
+The exact code of the experiment is on the branch `experiment-final`.
 
 ## Differences from Wang et al. (ICLR 2025)
 

@@ -26,16 +26,15 @@ for role in ("drafter", "verifier", "embedder"):
     snapshot_download(cfg["models"][role])
 EOF
 
-# Self-RAG eval data (if the Google Drive link is dead, use huggingface RAGLAB/data)
-mkdir -p data/raw
-if [ ! -f data/raw/eval_data.zip ]; then
-  gdown 1TLKhWjez63H4uBtgCxyoyJsZi-IMgnDb -O data/raw/eval_data.zip
-fi
-unzip -o -q data/raw/eval_data.zip -d data/raw
-ls -R data/raw | head -40
-echo
-echo ">> Check that config.json -> data.pubhealth_raw / data.triviaqa_raw point to the unzipped files,"
-echo ">> then run:  python src/prepare_data.py --tokenizer \$(python -c \"import json;print(json.load(open('config.json'))['models']['verifier'])\")"
+# Self-RAG eval data (copy on Hugging Face, the original Google Drive link is dead)
+python - <<'EOF'
+from huggingface_hub import hf_hub_download
+for f in ("eval_datasets/PubHealth/health_claims_processed.jsonl",
+          "eval_datasets/TriviaQA/triviaqa_test_w_gs.jsonl"):
+    print(hf_hub_download("RAGLAB/data", f, repo_type="dataset", local_dir="data/raw"))
+EOF
+# data/prepared/ already contains the sampled questions used in the experiment;
+# to sample again: python src/prepare_data.py
 
 # save software versions
 mkdir -p experiments
